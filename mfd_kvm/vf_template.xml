@@ -1,0 +1,5 @@
+<hostdev mode='subsystem' type='pci' managed='yes'>
+    <source>
+        <address domain='{{domain}}' bus='{{bus}}' slot='{{slot}}' function='{{func}}'/>
+    </source>
+</hostdev>

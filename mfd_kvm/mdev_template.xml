@@ -1,0 +1,5 @@
+<hostdev mode='subsystem' type='mdev' managed='no' model='vfio-pci'>
+<source>
+<address uuid='{{uuid}}'/>
+</source>
+</hostdev>
