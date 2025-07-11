@@ -12,7 +12,7 @@ dependencies = { file = ["requirements.txt"] }
 name = "mfd-kvm"
 description = "Module for managing KVM hypervisors, enabling VM creation, control, and network device management."
 requires-python = ">=3.10, <3.14"
-version = "3.11.0"
+version = "3.12.0"
 dynamic = ["dependencies"]
 license-files = ["LICENSE.md", "AUTHORS.md"]
 readme = {file = "README.md", content-type = "text/markdown"}
