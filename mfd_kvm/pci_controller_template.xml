@@ -1,0 +1,5 @@
+<controller type='pci' index='{{index}}' model='pcie-root-port'>
+    <model name='pcie-root-port'/>
+    <target chassis='{{chassis}}' port='{{port}}'/>
+    <address type='pci' domain='0x0000' bus='{{bus}}' slot='{{slot}}' function='{{func}}'/>
+</controller>
