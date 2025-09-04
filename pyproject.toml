@@ -26,5 +26,5 @@ Changelog = "https://github.com/intel/mfd-kvm/blob/main/CHANGELOG.md"
 [tool.setuptools.packages.find]
 exclude = ["examples", "tests*", "sphinx-doc"]
 
-[tools.setuptools.package-data]
+[tool.setuptools.package-data]
 "mfd_kvm" = ["*.xml"]
