@@ -13,7 +13,6 @@ import pytest
 from mfd_common_libs import log_levels
 from mfd_connect import RPyCConnection, LocalConnection
 from mfd_connect.base import ConnectionCompletedProcess
-from mfd_connect.pathlib.path import CustomPath
 from mfd_connect.process.rpyc import RPyCProcess
 from mfd_typing import MACAddress, PCIAddress, OSName
 from netaddr import IPAddress
@@ -286,8 +285,6 @@ class TestKVMHypervisor:
             mac_address="00:11:22:33:44:55",
         )
         target_file = "/tmp/KVM_VM_0.xml"
-        with open(target_file, "w") as file:
-            file.write("<VM xml file>")
 
         hv._conn.execute_command.return_value = ConnectionCompletedProcess(
             args="", stdout="<VM xml file>", return_code=0
@@ -870,7 +867,6 @@ class TestKVMHypervisor:
         mocker.patch("mfd_kvm.KVMHypervisor.get_vm_status", return_value={"State": state})
         hv.attach_device(name="VM_name", device_config="/path/to/config/file")
         hv.virt_tool.attach_device.assert_called_once()
-
 
     def test_clone_vm_hdd_image_check_if_source_file_exists(self, hv):
         source_path = Path("/foo/source")
