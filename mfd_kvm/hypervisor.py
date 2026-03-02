@@ -303,6 +303,7 @@ class KVMHypervisor:
                         timeout=clone_timeout,
                     )
                     disk_args.append(f"path={cloned_disk_path}")
+                    sleep(5)  # lack of sleep between image copying and vm creation might lead to problems with swtpm
                 else:
                     logger.log(
                         log_levels.MODULE_DEBUG,
