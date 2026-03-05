@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.12.2 (2026-03-05)
+
+### Bug Fixes
+
+- Add sleep after copying vm image
+  ([`8b76c51`](https://github.com/intel/mfd-kvm/commit/8b76c515093a4fb085700190af8f6eb0d385b4ec))
+
+
 ## v3.12.1 (2025-10-10)
 
 ### Bug Fixes
