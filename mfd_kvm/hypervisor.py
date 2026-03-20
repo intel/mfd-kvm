@@ -8,7 +8,7 @@ import re
 import typing
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, fields
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from random import choice
 from time import sleep, time
 from typing import Dict, List, Optional, Tuple, Union, OrderedDict
@@ -117,9 +117,9 @@ class VMParams:
                     continue
                 if type(None) in actual_type:
                     actual_type = actual_type[0]
-            if not isinstance(value, actual_type):
-                # parse value into correct type
-                setattr(self, field.name, actual_type(value))
+            if actual_type is Path and value is not None:
+                setattr(self, field.name, PurePosixPath(value))
+                continue
 
 
 class KVMHypervisor:
