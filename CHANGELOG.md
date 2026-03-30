@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.12.3 (2026-03-30)
+
+### Bug Fixes
+
+- Make sure Virtual Machine image Path is Linux compatible
+  ([`0f2f7e8`](https://github.com/intel/mfd-kvm/commit/0f2f7e82664c2eecb58ef7a05e908298cc1ecd8d))
+
+
 ## v3.12.2 (2026-03-05)
 
 ### Bug Fixes
