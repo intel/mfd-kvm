@@ -798,6 +798,21 @@ class TestKVMHypervisor:
         hv.prepare_vf_xml(template_path="", file_to_save="", pci_address=PCIAddress(0, 0, 15, 1))
         hv._conn.path().write_text.assert_called_once()
 
+    def test_prepare_vf_xml_with_mac_address(self, hv, mocker):
+        template_data = b"<mac address='{{mac_address}}'/><address domain='{{domain}}' bus='{{bus}}' slot='{{slot}}' function='{{func}}'/>"
+        mocker.patch("mfd_kvm.hypervisor.open", mocker.mock_open(read_data=template_data))
+        hv._conn.path = mocker.Mock()
+        pci_address = PCIAddress(0, 0, 15, 1)
+        mac = MACAddress("AA:BB:CC:DD:EE:FF")
+
+        hv.prepare_vf_xml(template_path="", file_to_save="", pci_address=pci_address, mac_address=mac)
+
+        expected_rendered = (
+            "<mac address='aa:bb:cc:dd:ee:ff'/>"
+            "<address domain='0x0' bus='0x0' slot='0xf' function='0x1'/>"
+        )
+        hv._conn.path().write_text.assert_called_once_with(expected_rendered)
+
     def test_prepare_pci_controller_xml(self, hv, mocker):
         template_data = (
             b"index='{{index}}' chassis='{{chassis}}' port='{{port}}' bus='{{bus}}' slot='{{slot}}' "
