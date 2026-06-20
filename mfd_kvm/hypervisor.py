@@ -764,6 +764,7 @@ class KVMHypervisor:
         template_path: Union[Path, str] = Path(__file__).parent / "vf_template.xml",
         file_to_save: str,
         pci_address: "PCIAddress",
+        mac_address: Optional[MACAddress] = None,
     ) -> Path:
         """
         Create configuration xml of VF for QEMU.
@@ -771,6 +772,7 @@ class KVMHypervisor:
         :param template_path: Path to template config
         :param file_to_save: Path to destination directory
         :param pci_address: PCI Address of VF
+        :param mac_address: MAC address of VF, if needed to set in config
         :return: Path to saved configuration
         """
         logger.log(log_levels.MODULE_DEBUG, msg="Creating configuration file for VF.")
@@ -778,7 +780,12 @@ class KVMHypervisor:
         for key, value in asdict(pci_address).items():
             # convert int to hex required for xml
             data_for_template[key] = hex(value)
-        file_to_save = self._render_file(file_to_save, data_for_template, template_path)
+        if mac_address is not None:
+            data_for_template["mac_address"] = str(mac_address)
+            template_path_with_mac = Path(__file__).parent / "vf_template_with_mac.xml"
+            file_to_save = self._render_file(file_to_save, data_for_template, template_path_with_mac)
+        else:
+            file_to_save = self._render_file(file_to_save, data_for_template, template_path)
         return file_to_save
 
     def _render_file(
