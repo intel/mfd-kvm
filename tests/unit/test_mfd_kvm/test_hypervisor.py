@@ -893,7 +893,11 @@ class TestKVMHypervisor:
                 timeout=timeout,
             )
 
-    def test_clone_vm_hdd_image_source_file_exists_and_succeeded(self, hv, mocker):
+    @pytest.mark.parametrize(
+        ("rsync_return_code", "copy_command"),
+        [(0, "rsync -aqc"), (1, "scp")],
+    )
+    def test_clone_vm_hdd_image_source_file_exists_and_succeeded(self, hv, mocker, rsync_return_code, copy_command):
         timeout_mocker = mocker.patch("mfd_kvm.hypervisor.TimeoutCounter")
         timeout_mocker.return_value.__bool__.return_value = False
         process = mocker.create_autospec(RPyCProcess)
@@ -901,11 +905,27 @@ class TestKVMHypervisor:
         hv._conn.start_process.return_value = process
         dest_path = Path("/foo/destination")
         path_mocker = mocker.patch("mfd_kvm.hypervisor.Path")
-        path_mocker.isfile.return_value = True
-        new_name = hv.clone_vm_hdd_image(path_to_source_image=path_mocker, path_to_destination_image=dest_path)
+        path_mocker.is_file.return_value = True
+        hv._conn.execute_command.side_effect = [
+            ConnectionCompletedProcess(args="", return_code=rsync_return_code),
+            ConnectionCompletedProcess(args="", stdout="100", return_code=0),
+            ConnectionCompletedProcess(args="", stdout="100", return_code=0),
+        ]
+        new_names = [
+            hv.clone_vm_hdd_image(path_to_source_image=path_mocker, path_to_destination_image=dest_path)
+            for _ in range(2)
+        ]
 
-        hv._conn.start_process.assert_called_once_with(f"scp {path_mocker} {dest_path}")
-        assert new_name, str(dest_path)
+        assert hv._conn.execute_command.call_args_list == [
+            mocker.call("command -v rsync", shell=True, expected_return_codes={0, 1}),
+            mocker.call(f"ls {path_mocker} -l | awk '{{print $5}}'", shell=True),
+            mocker.call(f"ls {path_mocker} -l | awk '{{print $5}}'", shell=True),
+        ]
+        assert hv._conn.start_process.call_args_list == [
+            mocker.call(f"{copy_command} {path_mocker} {dest_path}"),
+            mocker.call(f"{copy_command} {path_mocker} {dest_path}"),
+        ]
+        assert new_names == [dest_path, dest_path]
 
     def test_clone_vm_hdd_image_still_cloning(self, hv, mocker, caplog):
         caplog.set_level(log_levels.MODULE_DEBUG)
@@ -917,9 +937,10 @@ class TestKVMHypervisor:
         path_mocker = mocker.patch("mfd_kvm.hypervisor.Path")
         dest_path = mocker.patch("mfd_kvm.hypervisor.Path")
         mocker.patch("mfd_kvm.hypervisor.sleep")
-        path_mocker.isfile.return_value = True
+        path_mocker.is_file.return_value = True
         dest_path.exists.return_value = True
         hv._conn.execute_command.side_effect = [
+            ConnectionCompletedProcess(args="", return_code=0),
             ConnectionCompletedProcess(args="", stdout="100", return_code=0),
             ConnectionCompletedProcess(args="", stdout="10", return_code=0),
         ]

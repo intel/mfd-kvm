@@ -8,6 +8,7 @@ import re
 import typing
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, fields
+from functools import cached_property
 from pathlib import Path, PurePosixPath
 from random import choice
 from time import sleep, time
@@ -147,6 +148,18 @@ class KVMHypervisor:
         """
         self._conn = connection
         self.virt_tool = VirshInterface(connection=connection)
+
+    @cached_property
+    def _rsync_available(self) -> bool:
+        """Check once per hypervisor instance whether rsync is available."""
+        return (
+            self._conn.execute_command(
+                "command -v rsync",
+                shell=True,
+                expected_return_codes={0, 1},
+            ).return_code
+            == 0
+        )
 
     @staticmethod
     def get_name_from_ip(ip: IPAddress, prefix: str = "amval") -> str:
@@ -887,11 +900,14 @@ class KVMHypervisor:
         )
         if path_to_source_image.is_file():
             timeout_counter = TimeoutCounter(timeout)
+            copy_command = "rsync -aqc" if self._rsync_available else "scp"
             # show 5 column of ls, size of file
             target_size = self._conn.execute_command(
                 f"ls {path_to_source_image} -l | awk '{{print $5}}'", shell=True
             ).stdout
-            copy_process = self._conn.start_process(f"scp {path_to_source_image} {path_to_destination_image}")
+            copy_process = self._conn.start_process(
+                f"{copy_command} {path_to_source_image} {path_to_destination_image}"
+            )
             logger.log(log_levels.MODULE_DEBUG, msg="Checking if cloning is completed..")
             while not timeout_counter:
                 if not copy_process.running:
