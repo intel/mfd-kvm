@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v3.12.4 (2026-10-08)
+
+### Bug Fixes
+
+- Use rsync to copy VM image where available
+  ([`973ec71`](https://github.com/intel/mfd-kvm/commit/973ec717d89d9cce6753de097deb415498cae792))
+
+### Chores
+
+- Bump pytest and mfd-code-quality requirements
+  ([`781b881`](https://github.com/intel/mfd-kvm/commit/781b88137926bdbf3d32edab4db53de46df68ebf))
+
+### Continuous Integration
+
+- Align GitHub Actions with shared workflows
+  ([`912b114`](https://github.com/intel/mfd-kvm/commit/912b114b616d9192ba178b5fed2d935cad026471))
+
+
 ## v3.12.3 (2026-03-30)
 
 ### Bug Fixes
