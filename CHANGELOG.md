@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.13.0 (2026-10-13)
+
+### Features
+
+- Improvements in clone_vm_hdd_image logic
+  ([`7a6eaef`](https://github.com/intel/mfd-kvm/commit/7a6eaefa6d4f07adf790ffa78e4f52166ff42a8b))
+
+
 ## v3.12.4 (2026-10-08)
 
 ### Bug Fixes
