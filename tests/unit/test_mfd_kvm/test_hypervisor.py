@@ -905,7 +905,10 @@ class TestKVMHypervisor:
             "ls /remote/source.img -l | awk '{print $5}'",
             shell=True,
         )
-        hv._conn.start_process.assert_called_once_with("rsync -aq /remote/source.img /remote/destination.img")
+        hv._conn.start_process.assert_called_once_with(
+            "rsync -av --info=progress2 --outbuf=N /remote/source.img /remote/destination.img",
+            log_file=True,
+        )
 
     @pytest.mark.parametrize(
         "source_name",
@@ -988,8 +991,12 @@ class TestKVMHypervisor:
 
         assert result == destination_path
         assert not destination_path.exists()
-        assert f"Destination image {destination_path} differs from the source; removing it." in caplog.text
-        hv._conn.start_process.assert_called_once_with(f"rsync -aq {source_path} {destination_path}")
+        messages = [r.getMessage() for r in caplog.records]
+        assert f"Destination image {destination_path} differs from the source; removing it." in messages
+        hv._conn.start_process.assert_called_once_with(
+            f"rsync -av --info=progress2 --outbuf=N {source_path} {destination_path}",
+            log_file=True,
+        )
 
     def test_clone_vm_hdd_image_timeout_exceeded(self, hv, mocker):
         timeout_mocker = mocker.patch("mfd_kvm.hypervisor.TimeoutCounter")
@@ -1012,7 +1019,7 @@ class TestKVMHypervisor:
 
     @pytest.mark.parametrize(
         ("rsync_return_code", "copy_command"),
-        [(0, "rsync -aq"), (1, "scp")],
+        [(0, "rsync -av --info=progress2 --outbuf=N"), (1, "scp")],
     )
     def test_clone_vm_hdd_image_source_file_exists_and_succeeded(self, hv, mocker, rsync_return_code, copy_command):
         timeout_mocker = mocker.patch("mfd_kvm.hypervisor.TimeoutCounter")
@@ -1039,38 +1046,86 @@ class TestKVMHypervisor:
             mocker.call(f"ls {path_mocker} -l | awk '{{print $5}}'", shell=True),
             mocker.call(f"ls {path_mocker} -l | awk '{{print $5}}'", shell=True),
         ]
+        log_file = copy_command != "scp"
         assert hv._conn.start_process.call_args_list == [
-            mocker.call(f"{copy_command} {path_mocker} {dest_path}"),
-            mocker.call(f"{copy_command} {path_mocker} {dest_path}"),
+            mocker.call(f"{copy_command} {path_mocker} {dest_path}", log_file=log_file),
+            mocker.call(f"{copy_command} {path_mocker} {dest_path}", log_file=log_file),
         ]
         assert new_names == [dest_path, dest_path]
 
-    def test_clone_vm_hdd_image_still_cloning(self, hv, mocker, caplog):
+    def test_clone_vm_hdd_image_still_cloning_scp(self, hv, mocker, caplog):
         caplog.set_level(log_levels.MODULE_DEBUG)
         timeout_mocker = mocker.patch("mfd_kvm.hypervisor.TimeoutCounter")
         timeout_mocker.return_value.__bool__.return_value = False
         process = mocker.create_autospec(RPyCProcess)
         type(process).running = mocker.PropertyMock(side_effect=[True, False])
+        process.log_path = "/tmp/logfile.log"
+        hv.__dict__["_rsync_available"] = False
         hv._conn.start_process.return_value = process
         path_mocker = mocker.patch("mfd_kvm.hypervisor.Path")
         dest_path = mocker.patch("mfd_kvm.hypervisor.Path")
         mocker.patch("mfd_kvm.hypervisor.sleep")
         path_mocker.is_file.return_value = True
         dest_path.exists.side_effect = [False, True]
+        dest_path.name = "destination.img"
         hv._conn.path.side_effect = [path_mocker, dest_path]
         hv._conn.execute_command.side_effect = [
-            ConnectionCompletedProcess(args="", return_code=0),
             ConnectionCompletedProcess(args="", stdout="100", return_code=0),
             ConnectionCompletedProcess(args="", stdout="10", return_code=0),
         ]
         hv.clone_vm_hdd_image(path_to_source_image=path_mocker, path_to_destination_image=dest_path)
-        assert "still cloning... 10 %, next check in 30secs." in caplog.text
+        messages = [r.getMessage() for r in caplog.records]
+        assert "still cloning... 10 %, next check in 30secs." in messages
+
+    def test_clone_vm_hdd_image_still_cloning_rsync(self, hv, mocker, caplog):
+        caplog.set_level(log_levels.MODULE_DEBUG)
+        timeout_mocker = mocker.patch("mfd_kvm.hypervisor.TimeoutCounter")
+        timeout_mocker.return_value.__bool__.return_value = False
+        process = mocker.create_autospec(RPyCProcess)
+        type(process).running = mocker.PropertyMock(side_effect=[True, True, False])
+        process.log_path = "/tmp/logfile.log"
+        hv.__dict__["_rsync_available"] = True
+        hv._conn.start_process.return_value = process
+        path_mocker = mocker.patch("mfd_kvm.hypervisor.Path")
+        dest_path = mocker.patch("mfd_kvm.hypervisor.Path")
+        mocker.patch("mfd_kvm.hypervisor.sleep")
+        path_mocker.is_file.return_value = True
+        dest_path.exists.side_effect = [False, True]
+        dest_path.name = "destination.img"
+        hv._conn.path.side_effect = [path_mocker, dest_path]
+        rsync_still_cloning_output = dedent(
+            """\
+            sending incremental file list
+            source.img
+            ^M         32,768   0%    0.00kB/s    0:00:00  ^M     22,577,152   0%   21.31MB/s    0:11:32  ^M
+            1,512,793,702  10%   19.56MB/s    0:12:33
+            """
+        )
+        rsync_finished_cloning_output = dedent(
+            """\
+            sending incremental file list
+            source.img
+            ^M         32,768   0%    0.00kB/s    0:00:00  ^M     22,577,152   0%   21.31MB/s    0:11:32  ^M
+            1,512,793,702  10%   19.56MB/s    0:12:33  ^M
+            total size is 15,127,937,020  speedup is 1.00
+            """
+        )
+        hv._conn.execute_command.side_effect = [
+            ConnectionCompletedProcess(args="", stdout="15127937020", return_code=0),
+            ConnectionCompletedProcess(args="", stdout=rsync_still_cloning_output, return_code=0),
+            ConnectionCompletedProcess(args="", stdout=rsync_finished_cloning_output, return_code=0),
+        ]
+        hv.clone_vm_hdd_image(path_to_source_image=path_mocker, path_to_destination_image=dest_path)
+        messages = [r.getMessage() for r in caplog.records]
+        assert "still cloning... 10 %, next check in 30secs." in messages
+        assert "still cloning... 100 %, next check in 30secs." in messages
 
     @pytest.mark.parametrize("current_size", ["", "invalid", "0", "-1"])
     def test_clone_vm_hdd_image_invalid_current_size(self, hv, mocker, caplog, current_size):
         caplog.set_level(log_levels.MODULE_DEBUG)
         timeout_mocker = mocker.patch("mfd_kvm.hypervisor.TimeoutCounter")
         timeout_mocker.return_value.__bool__.return_value = False
+        hv.__dict__["_rsync_available"] = False
         process = mocker.create_autospec(RPyCProcess)
         type(process).running = mocker.PropertyMock(side_effect=[True, False])
         hv._conn.start_process.return_value = process
@@ -1081,7 +1136,6 @@ class TestKVMHypervisor:
         dest_path.exists.side_effect = [False, True]
         hv._conn.path.side_effect = [path_mocker, dest_path]
         hv._conn.execute_command.side_effect = [
-            ConnectionCompletedProcess(args="", return_code=0),
             ConnectionCompletedProcess(args="", stdout="100", return_code=0),
             ConnectionCompletedProcess(args="", stdout=current_size, return_code=0),
         ]

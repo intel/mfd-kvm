@@ -900,53 +900,82 @@ class KVMHypervisor:
             msg=f"Cloning disk image {path_to_source_image} into {path_to_destination_image}, "
             f"timeout - {timeout} secs.",
         )
-        if path_to_source_image.is_file():
-            if path_to_destination_image.exists():
-                # if source image contains suffix that matches checksum pattern use it for comparison
-                source_checksum = path_to_source_image.name.rsplit(".", maxsplit=1)[-1]
-                if re.fullmatch(r"[a-fA-F0-9]{32}", source_checksum):
-                    logger.log(
-                        log_levels.MODULE_DEBUG,
-                        msg=f"Pre-calculated checksum found in the source filename: {source_checksum}. "
-                        "It will be used for comparison with the destination image.",
-                    )
-                else:
-                    logger.log(
-                        log_levels.MODULE_DEBUG,
-                        msg="Pre-calculated checksum not found in the source filename. "
-                        "It will be calculated directly for comparison.",
-                    )
-                    source_checksum = self._conn.execute_command(f"md5sum {path_to_source_image}").stdout.split()[0]
-                destination_checksum = self._conn.execute_command(f"md5sum {path_to_destination_image}").stdout.split()[
-                    0
-                ]
-                if source_checksum.lower() == destination_checksum.lower():
-                    logger.log(
-                        log_levels.MODULE_DEBUG,
-                        msg=f"Destination image {path_to_destination_image} already matches the source; "
-                        "skipping cloning.",
-                    )
-                    return path_to_destination_image
+        if not path_to_source_image.is_file():
+            raise FileNotFoundError(f"Not found {path_to_source_image} in system.")
+
+        if path_to_destination_image.exists():
+            # if source image contains suffix that matches checksum pattern use it for comparison
+            source_checksum = path_to_source_image.name.rsplit(".", maxsplit=1)[-1]
+            if re.fullmatch(r"[a-fA-F0-9]{32}", source_checksum):
                 logger.log(
                     log_levels.MODULE_DEBUG,
-                    msg=f"Destination image {path_to_destination_image} differs from the source; removing it.",
+                    msg=f"Pre-calculated checksum found in the source filename: {source_checksum}. "
+                    "It will be used for comparison with the destination image.",
                 )
-                path_to_destination_image.unlink()
-
-            timeout_counter = TimeoutCounter(timeout)
-            copy_command = "rsync -aq" if self._rsync_available else "scp"
-            # show 5 column of ls, size of file
-            target_size = self._conn.execute_command(
-                f"ls {path_to_source_image} -l | awk '{{print $5}}'", shell=True
-            ).stdout
-            copy_process = self._conn.start_process(
-                f"{copy_command} {path_to_source_image} {path_to_destination_image}"
+            else:
+                logger.log(
+                    log_levels.MODULE_DEBUG,
+                    msg="Pre-calculated checksum not found in the source filename. "
+                    "It will be calculated directly for comparison.",
+                )
+                source_checksum = self._conn.execute_command(f"md5sum {path_to_source_image}").stdout.split()[0]
+            destination_checksum = self._conn.execute_command(f"md5sum {path_to_destination_image}").stdout.split()[0]
+            if source_checksum.lower() == destination_checksum.lower():
+                logger.log(
+                    log_levels.MODULE_DEBUG,
+                    msg=f"Destination image {path_to_destination_image} already matches the source; "
+                    "skipping cloning.",
+                )
+                return path_to_destination_image
+            logger.log(
+                log_levels.MODULE_DEBUG,
+                msg=f"Destination image {path_to_destination_image} differs from the source; removing it.",
             )
-            logger.log(log_levels.MODULE_DEBUG, msg="Checking if cloning is completed..")
-            while not timeout_counter:
-                if not copy_process.running:
-                    logger.log(log_levels.MODULE_DEBUG, msg="Cloning completed.")
-                    return path_to_destination_image
+            path_to_destination_image.unlink()
+
+        timeout_counter = TimeoutCounter(timeout)
+        copy_command = "rsync -av" if self._rsync_available else "scp"
+        params = f" --info=progress2 --outbuf=N " if self._rsync_available else " "
+        # show 5 column of ls, size of file
+        target_size = self._conn.execute_command(
+            f"ls {path_to_source_image} -l | awk '{{print $5}}'",
+            shell=True,
+        ).stdout
+        copy_process = self._conn.start_process(
+            f"{copy_command}{params}{path_to_source_image} {path_to_destination_image}",
+            log_file=self._rsync_available,
+        )
+        logger.log(log_levels.MODULE_DEBUG, msg="Checking if cloning is completed..")
+        while not timeout_counter:
+            if not copy_process.running:
+                logger.log(log_levels.MODULE_DEBUG, msg="Cloning completed.")
+                return path_to_destination_image
+            if self._rsync_available:
+                out = self._conn.execute_command(
+                    f"cat -A {copy_process.log_path}",
+                    shell=True,
+                    expected_return_codes={},
+                    skip_logging=True,
+                )
+                if out.return_code != 0:
+                    logger.log(
+                        log_levels.MODULE_DEBUG,
+                        msg=f"Failed to read rsync log file {copy_process.log_path}. "
+                        f"Return code: {out.return_code}, output: {out.stderr}",
+                    )
+                    current_size = 0
+                else:
+                    last_line = str(out.stdout).split("^M")[-1]
+                    logger.log(log_levels.MODULE_DEBUG, msg=f"Last line of rsync process:\n{last_line}")
+                    if last_line.strip() == "":
+                        current_size = 0
+                    elif "sent" in last_line or "total size" in last_line:
+                        current_size = target_size
+                    elif path_to_destination_image.name in last_line or "sending incremental file list" in last_line:
+                        current_size = 0
+                    else:
+                        current_size = last_line.strip().split()[0].replace(",", "")
+            else:
                 current_size = (
                     self._conn.execute_command(
                         f"ls {path_to_destination_image} -l | awk '{{print $5}}'",
@@ -955,22 +984,20 @@ class KVMHypervisor:
                     if path_to_destination_image.exists()
                     else 0
                 )
-                try:
-                    current_size = int(current_size)
-                except (TypeError, ValueError):
-                    current_size = 0
-                if current_size > 0:
-                    logging.log(
-                        log_levels.MODULE_DEBUG,
-                        msg=f"still cloning... {current_size / int(target_size) * 100:.0f} %, next check in 30secs.",
-                    )
-                sleep(30)
-            else:
-                raise KVMHypervisorException(
-                    f"Cloning image {path_to_source_image} not finished in given timeout: {timeout}"
+            try:
+                current_size = int(current_size)
+            except (TypeError, ValueError):
+                current_size = 0
+            if current_size > 0:
+                logging.log(
+                    log_levels.MODULE_DEBUG,
+                    msg=f"still cloning... {current_size / int(target_size) * 100:.0f} %, next check in 30secs.",
                 )
+            sleep(30)
         else:
-            raise FileNotFoundError(f"Not found {path_to_source_image} in system.")
+            raise KVMHypervisorException(
+                f"Cloning image {path_to_source_image} not finished in given timeout: {timeout}"
+            )
 
     def create_mdev(
         self,
